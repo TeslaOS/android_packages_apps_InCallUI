@@ -20,23 +20,23 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.provider.Settings;
 
+import com.android.contacts.common.util.BlockContactHelper;
 import com.android.dialer.util.TelecomUtil;
 import com.android.incallui.InCallPresenter.InCallState;
+import com.android.internal.telephony.util.BlacklistUtils;
 
-import android.telecom.VideoProfile;
-
-import java.util.List;
-
+import com.cyanogen.lookup.phonenumber.provider.LookupProviderImpl;
 import org.codeaurora.ims.qtiims.IQtiImsInterface;
 import org.codeaurora.ims.qtiims.IQtiImsInterfaceListener;
 import org.codeaurora.ims.qtiims.QtiImsInterfaceUtils;
 import org.codeaurora.ims.qtiims.QtiViceInfo;
 import org.codeaurora.QtiVideoCallConstants;
+
+import java.util.List;
 
 /**
  * Presenter for the Incoming call widget. The {@link AnswerPresenter} handles the logic during
@@ -58,6 +58,7 @@ public class AnswerPresenter extends Presenter<AnswerPresenter.AnswerUi>
     private Call mCall[] = new Call[InCallServiceImpl.sPhoneCount];
     private final CallList mCalls = CallList.getInstance();
     private boolean mHasTextMessages = false;
+    private BlockContactHelper mBlockContactHelper;
 
     /**
      * Details required to support call deflection feature.
@@ -438,7 +439,7 @@ public class AnswerPresenter extends Presenter<AnswerPresenter.AnswerUi>
         return phoneId;
     }
 
-    public void onAnswer(int videoState, Context context) {
+    public void onAnswer(int videoState, Context context, int callWaitingResponseType) {
         int phoneId = getActivePhoneId();
         Log.i(this, "onAnswer  mCallId:" + mCallId + "phoneId:" + phoneId);
         if (mCallId == null || phoneId == -1) {
@@ -451,7 +452,8 @@ public class AnswerPresenter extends Presenter<AnswerPresenter.AnswerUi>
             InCallPresenter.getInstance().acceptUpgradeRequest(videoState, context);
         } else {
             Log.d(this, "onAnswer (answerCall) mCallId=" + mCallId + " videoState=" + videoState);
-            TelecomAdapter.getInstance().answerCall(mCall[phoneId].getId(), videoState);
+            TelecomAdapter.getInstance().answerCall(mCall[phoneId].getId(), videoState,
+                    callWaitingResponseType);
         }
     }
 
@@ -475,6 +477,32 @@ public class AnswerPresenter extends Presenter<AnswerPresenter.AnswerUi>
             TelecomUtil.silenceRinger(getUi().getContext());
             getUi().showMessageDialog();
         }
+    }
+
+    public void onBlock(boolean notifyLookupProvider) {
+        if (mBlockContactHelper != null) {
+            mBlockContactHelper.blockContactAsync(notifyLookupProvider);
+            // end the call
+            onDecline(getUi().getContext());
+        }
+    }
+
+    public boolean isBlockingEnabled() {
+        return BlacklistUtils.isBlacklistEnabled(getUi().getContext());
+    }
+
+    public void onBlockDialogInitialize() {
+        int phoneId = getActivePhoneId();
+        Log.d(this, "onBlock mCallId:" + mCallId + "phoneId:" + phoneId);
+        Call call = mCall[phoneId];
+        final String number = call.getNumber();
+        final Context context = getUi().getContext();
+        mBlockContactHelper = new BlockContactHelper(context, new LookupProviderImpl(context));
+        mBlockContactHelper.setContactInfo(number);
+    }
+
+    public String getLookupProviderName() {
+        return mBlockContactHelper.getLookupProviderName();
     }
 
     /**
@@ -525,17 +553,18 @@ public class AnswerPresenter extends Presenter<AnswerPresenter.AnswerUi>
         boolean withSms =
                 call.can(android.telecom.Call.Details.CAPABILITY_RESPOND_VIA_TEXT)
                 && mHasTextMessages;
+        boolean withBlock = isBlockingEnabled();
+
+        Call activeCall = CallList.getInstance().getActiveCall();
+        boolean isCallWaiting = activeCall != null && activeCall != call;
 
         // Only present the user with the option to answer as a video call if the incoming call is
         // a bi-directional video call.
         if (call.isVideoCall(getUi().getContext())) {
+            getUi().showTargets(QtiCallUtils.getIncomingCallAnswerOptions(
+                    getUi().getContext(), withSms, withBlock));
             if (withSms) {
-                getUi().showTargets(QtiCallUtils.getIncomingCallAnswerOptions(
-                        getUi().getContext(), withSms));
                 getUi().configureMessageDialog(textMsgs);
-            } else {
-                getUi().showTargets(QtiCallUtils.getIncomingCallAnswerOptions(
-                        getUi().getContext(), withSms));
             }
         } else if (isCallDeflectSupported()) {
             /**
@@ -550,11 +579,34 @@ public class AnswerPresenter extends Presenter<AnswerPresenter.AnswerUi>
             }
         } else {
             if (withSms) {
-                getUi().showTargets(AnswerFragment.TARGET_SET_FOR_AUDIO_WITH_SMS);
-                getUi().configureMessageDialog(textMsgs);
+                if (isCallWaiting) {
+                    getUi().showTargets(AnswerFragment
+                            .TARGET_SET_FOR_AUDIO_WITH_SMS_AND_CALL_WAITING);
+                    getUi().configureMessageDialog(textMsgs);
+                } else {
+                    getUi().showTargets(withBlock
+                            ? AnswerFragment.TARGET_SET_FOR_AUDIO_WITH_SMS_AND_BLOCK
+                            : AnswerFragment.TARGET_SET_FOR_AUDIO_WITH_SMS_WITHOUT_BLOCK);
+                    getUi().configureMessageDialog(textMsgs);
+                }
             } else {
-                getUi().showTargets(AnswerFragment.TARGET_SET_FOR_AUDIO_WITHOUT_SMS);
+                if (isCallWaiting) {
+                    getUi().showTargets(AnswerFragment
+                            .TARGET_SET_FOR_AUDIO_WITHOUT_SMS_WITH_CALL_WAITING);
+                } else {
+                    getUi().showTargets(withBlock
+                            ? AnswerFragment.TARGET_SET_FOR_AUDIO_WITHOUT_SMS_WITH_BLOCK
+                            : AnswerFragment.TARGET_SET_FOR_AUDIO_WITHOUT_SMS_AND_BLOCK);
+                }
             }
+        }
+    }
+
+    @Override
+    public void onUiUnready(AnswerUi ui) {
+        super.onUiUnready(ui);
+        if (mBlockContactHelper != null) {
+            mBlockContactHelper.destroy();
         }
     }
 
