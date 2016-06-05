@@ -148,8 +148,10 @@ public class CallCardFragment extends BaseFragment<CallCardPresenter, CallCardPr
     private View mManageConferenceCallButton;
 
     private View mPhotoContainer;
+    private View mLookupExtraInfoContainer;
     private TextView mLookupStatusMessage;
-    private TextView mContactInfoAttribution;
+    private TextView mContactInfoAttributionText;
+    private ImageView mContactInfoAttributionLogo;
     private TextView mSpamInfoView;
 
     // Dark number info bar
@@ -332,8 +334,10 @@ public class CallCardFragment extends BaseFragment<CallCardPresenter, CallCardPr
         mCallStateLabel.setElegantTextHeight(false);
         mCallSubject = (TextView) view.findViewById(R.id.callSubject);
 
+        mLookupExtraInfoContainer = view.findViewById(R.id.lookup_extra_info_container);
         mLookupStatusMessage = (TextView) view.findViewById(R.id.lookupStatusMessage);
-        mContactInfoAttribution = (TextView) view.findViewById(R.id.contactInfoAttribution);
+        mContactInfoAttributionText = (TextView) view.findViewById(R.id.contactInfoAttributionText);
+        mContactInfoAttributionLogo = (ImageView) view.findViewById(R.id.contactInfoAttributionLogo);
         mSpamInfoView = (TextView) view.findViewById(R.id.spamInfo);
         mPhotoContainer = view.findViewById(R.id.call_card_content);
 
@@ -605,11 +609,6 @@ public class CallCardFragment extends BaseFragment<CallCardPresenter, CallCardPr
 
         setLookupProviderStatus(isLookupInProgress, lookupStatus, providerName, providerLogo,
                 showSpamInfo, spamCount);
-        if (showSpamInfo) {
-            mPhoto.setVisibility(View.GONE);
-            mPhotoContainer.setBackgroundColor(getContext().getResources().getColor(
-                    R.color.contact_info_spam_info_text_color, getContext().getTheme()));
-        }
     }
 
     @Override
@@ -667,7 +666,11 @@ public class CallCardFragment extends BaseFragment<CallCardPresenter, CallCardPr
             mSecondaryCallInfo.setVisibility(View.VISIBLE);
         }
 
-        updateFabPositionForSecondaryCallInfo();
+        // If secondary info visibility hasn't changed, don't animate. Return.
+        if (wasVisible == isVisible) {
+            return;
+        }
+
         // We need to translate the secondary caller info, but we need to know its position after
         // the layout has occurred so use a {@code ViewTreeObserver}.
         final ViewTreeObserver observer = getView().getViewTreeObserver();
@@ -681,6 +684,10 @@ public class CallCardFragment extends BaseFragment<CallCardPresenter, CallCardPr
                 // Get the height of the secondary call info now, and then re-hide the view prior
                 // to doing the actual animation.
                 int secondaryHeight = mSecondaryCallInfo.getHeight();
+
+                // Update floating end call button position onPreDraw
+                updateFabPositionForSecondaryCallInfo();
+
                 if (isVisible) {
                     mSecondaryCallInfo.setVisibility(View.GONE);
                 }
@@ -1331,13 +1338,9 @@ public class CallCardFragment extends BaseFragment<CallCardPresenter, CallCardPr
         } else {
             switch (lookupStatus) {
                 case SUCCESS:
-                    mContactInfoAttribution.setText(
+                    mContactInfoAttributionText.setText(
                             res.getString(R.string.powered_by_provider, providerName));
-                    int logoSize = res.getDimensionPixelSize(R.dimen.contact_info_attribution_logo_size);
-                    int logoPadding = res.getDimensionPixelSize(R.dimen.contact_info_attribution_logo_padding);
-                    providerLogo.setBounds(0, 0, logoSize, logoSize);
-                    mContactInfoAttribution.setCompoundDrawablesRelative(providerLogo, null, null, null);
-                    mContactInfoAttribution.setCompoundDrawablePadding(logoPadding);
+                    mContactInfoAttributionLogo.setImageDrawable(providerLogo);
                     showContactAttribution = true;
                     showLookupStatus = false;
                     break;
@@ -1365,12 +1368,20 @@ public class CallCardFragment extends BaseFragment<CallCardPresenter, CallCardPr
             }
         }
         mLookupStatusMessage.setVisibility(showLookupStatus ? View.VISIBLE : View.GONE);
-        mContactInfoAttribution.setVisibility(showContactAttribution ? View.VISIBLE : View.GONE);
+        mContactInfoAttributionText.setVisibility(showContactAttribution ? View.VISIBLE : View.GONE);
+        mContactInfoAttributionLogo.setVisibility(showContactAttribution ? View.VISIBLE : View.GONE);
     }
 
     public void onDialpadVisibilityChange(boolean isShown) {
         mIsDialpadShowing = isShown;
         updateFabPosition();
+        // ensure that the extra-info container doesn't overlap w/ the dialpad
+        if (isShown) {
+            mLookupExtraInfoContainer.setElevation(0f);
+        } else {
+            mLookupExtraInfoContainer.setElevation(getContext().getResources()
+                    .getDimensionPixelSize(R.dimen.lookup_extra_info_container_elevation));
+        }
     }
 
     public void updateFabPosition() {

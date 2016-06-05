@@ -451,14 +451,14 @@ public class ContactInfoCache implements ContactsAsyncHelper.OnImageLoadComplete
         @Override
         public void onNewInfo(LookupRequest lookupRequest, final LookupResponse response) {
             final ContactCacheEntry oldEntry = mInfoMap.get(mCallId);
-            if (oldEntry == null) {
+            if (oldEntry == null || response == null) {
                 // not interested in updates for this call anymore
                 return;
             }
             oldEntry.isLookupInProgress = false;
             oldEntry.lookupStatus = response.mStatusCode;
 
-            if (response == null) {
+            if (response == null || response.mStatusCode != StatusCode.SUCCESS) {
                 oldEntry.lookupProviderName = mLookupProvider.getDisplayName();
                 oldEntry.lookupStatus = StatusCode.FAIL;
                 mMainHandler.post(new Runnable() {
@@ -818,6 +818,12 @@ public class ContactInfoCache implements ContactsAsyncHelper.OnImageLoadComplete
                 this.lookupKey = entry.lookupKey;
                 this.isEmergencyNumber = entry.isEmergencyNumber;
                 this.inCallPluginInfoList = entry.inCallPluginInfoList;
+                this.spamCount = entry.spamCount;
+                this.isSpam = entry.isSpam;
+                this.lookupProviderName = entry.lookupProviderName;
+                this.lookupProviderBadge = entry.lookupProviderBadge;
+                this.isLookupInProgress = entry.isLookupInProgress;
+                this.lookupStatus = entry.lookupStatus;
             }
         }
 
